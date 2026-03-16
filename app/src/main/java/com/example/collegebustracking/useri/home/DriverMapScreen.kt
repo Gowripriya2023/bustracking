@@ -53,6 +53,10 @@ fun DriverMapScreen(navController: NavController) {
     val currentLonState = remember { mutableStateOf<Double?>(null) }
     val statusMessageState = remember { mutableStateOf("Loading...") }
 
+    // Notifications
+    var notifications by remember { mutableStateOf(listOf<Map<String, String>>()) }
+    var showNotifications by remember { mutableStateOf(false) }
+
     // Location permission
     var hasLocationPermission by remember {
         mutableStateOf(
@@ -183,6 +187,22 @@ fun DriverMapScreen(navController: NavController) {
                     statusMessageState.value = "Error: ${error.message}"
                 }
             })
+
+        // Load notifications
+        database.child("notifications")
+            .addValueEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    val list = mutableListOf<Map<String, String>>()
+                    for (child in snapshot.children) {
+                        val t = child.child("title").getValue(String::class.java) ?: ""
+                        val m = child.child("message").getValue(String::class.java) ?: ""
+                        val time = child.child("date").getValue(String::class.java) ?: ""
+                        list.add(mapOf("title" to t, "message" to m, "date" to time))
+                    }
+                    notifications = list.reversed()
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            })
     }
 
     // Request permission on launch
@@ -210,29 +230,99 @@ fun DriverMapScreen(navController: NavController) {
 
     Column(modifier = Modifier.fillMaxSize()) {
 
-        // Status bar
+        // Status bar with notification bell and logout
         Surface(
             color = if (isTripActive) Color(0xFF1B5E20) else Color(0xFF424242),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = if (isTripActive) "\uD83D\uDFE2 Trip Active" else "\u23F8 Trip Stopped",
-                    color = Color.White,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                if (assignedBus != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Bus: ${assignedBus.busNumber}",
+                        text = if (isTripActive) "\uD83D\uDFE2 Trip Active" else "\u23F8 Trip Stopped",
                         color = Color.White,
-                        style = MaterialTheme.typography.bodyMedium
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    if (assignedBus != null) {
+                        Text(
+                            text = "Bus: ${assignedBus.busNumber}",
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                    Text(
+                        text = statusMessage,
+                        color = Color(0xFFB0BEC5),
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
-                Text(
-                    text = statusMessage,
-                    color = Color(0xFFB0BEC5),
-                    style = MaterialTheme.typography.bodySmall
+
+                // Notification bell
+                IconButton(onClick = { showNotifications = !showNotifications }) {
+                    Text("\uD83D\uDD14", style = MaterialTheme.typography.titleLarge)
+                }
+
+                // Logout button
+                IconButton(onClick = {
+                    // Stop trip and location updates
+                    val bus = assignedBusState.value
+                    if (bus != null && tripActiveState.value) {
+                        database.child("buses").child(bus.id)
+                            .child("isTripActive").setValue(false)
+                        database.child("buses").child(bus.id)
+                            .child("currentLocation").removeValue()
+                        fusedLocationClient.removeLocationUpdates(locationCallback)
+                    }
+                    FirebaseAuth.getInstance().signOut()
+                    navController.navigate("login") {
+                        popUpTo(0) { inclusive = true }
+                    }
+                }) {
+                    Text("\uD83D\uDEAA", style = MaterialTheme.typography.titleLarge)
+                }
+            }
+        }
+
+        // Notification panel
+        if (showNotifications) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer
                 )
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text("\uD83D\uDD14 Notifications",
+                        style = MaterialTheme.typography.titleMedium)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    if (notifications.isEmpty()) {
+                        Text("No notifications")
+                    } else {
+                        notifications.take(5).forEach { notif ->
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 3.dp)
+                            ) {
+                                Column(modifier = Modifier.padding(10.dp)) {
+                                    Text(notif["title"] ?: "",
+                                        style = MaterialTheme.typography.titleSmall)
+                                    Text(notif["message"] ?: "",
+                                        style = MaterialTheme.typography.bodySmall)
+                                    Text(notif["date"] ?: "",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
