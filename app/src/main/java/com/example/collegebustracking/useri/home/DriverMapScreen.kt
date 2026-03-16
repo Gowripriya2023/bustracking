@@ -46,13 +46,12 @@ fun DriverMapScreen(navController: NavController) {
 
     val context = LocalContext.current
 
-    var assignedBus by remember { mutableStateOf<Bus?>(null) }
-    var isTripActive by remember { mutableStateOf(false) }
-
-    // Driver's current GPS as Compose state
-    var currentLat by remember { mutableStateOf<Double?>(null) }
-    var currentLon by remember { mutableStateOf<Double?>(null) }
-    var statusMessage by remember { mutableStateOf("Loading...") }
+    // Use MutableState directly (NOT property delegates) so callback can read .value
+    val assignedBusState = remember { mutableStateOf<Bus?>(null) }
+    val tripActiveState = remember { mutableStateOf(false) }
+    val currentLatState = remember { mutableStateOf<Double?>(null) }
+    val currentLonState = remember { mutableStateOf<Double?>(null) }
+    val statusMessageState = remember { mutableStateOf("Loading...") }
 
     // Location permission
     var hasLocationPermission by remember {
@@ -82,30 +81,28 @@ fun DriverMapScreen(navController: NavController) {
          .build()
     }
 
-    // Use rememberUpdatedState to capture latest state in the callback
-    val currentAssignedBus by rememberUpdatedState(assignedBus)
-    val currentTripActive by rememberUpdatedState(isTripActive)
-
+    // Location callback — uses .value to read CURRENT state (NOT property delegates)
     val locationCallback = remember {
         object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
 
                 val location = locationResult.lastLocation ?: return
 
-                // Update Compose state so the map redraws
-                currentLat = location.latitude
-                currentLon = location.longitude
+                // Update UI state
+                currentLatState.value = location.latitude
+                currentLonState.value = location.longitude
+
+                val bus = assignedBusState.value
+                val tripActive = tripActiveState.value
 
                 android.util.Log.d("DRIVER_GPS",
-                    "GPS: lat=${location.latitude}, lon=${location.longitude}, " +
-                    "tripActive=$currentTripActive, bus=${currentAssignedBus?.id}")
+                    "GPS RECEIVED: lat=${location.latitude}, lon=${location.longitude}, " +
+                    "tripActive=$tripActive, busId=${bus?.id}")
 
-                if (currentTripActive && currentAssignedBus != null) {
-
-                    val busId = currentAssignedBus!!.id
+                if (tripActive && bus != null && bus.id.isNotEmpty()) {
 
                     database.child("buses")
-                        .child(busId)
+                        .child(bus.id)
                         .child("currentLocation")
                         .setValue(
                             mapOf(
@@ -115,15 +112,19 @@ fun DriverMapScreen(navController: NavController) {
                             )
                         )
                         .addOnSuccessListener {
-                            statusMessage = "GPS sent: ${location.latitude}, ${location.longitude}"
-                            android.util.Log.d("DRIVER_GPS", "Firebase push SUCCESS")
+                            statusMessageState.value =
+                                "GPS Sent: %.5f, %.5f".format(location.latitude, location.longitude)
+                            android.util.Log.d("DRIVER_GPS", "FIREBASE PUSH SUCCESS")
                         }
                         .addOnFailureListener { e ->
-                            statusMessage = "Firebase error: ${e.message}"
-                            android.util.Log.e("DRIVER_GPS", "Firebase push FAILED: ${e.message}")
+                            statusMessageState.value = "Firebase Error: ${e.message}"
+                            android.util.Log.e("DRIVER_GPS", "FIREBASE PUSH FAILED: ${e.message}")
                         }
                 } else {
-                    statusMessage = "GPS received but not pushing (trip=${currentTripActive}, bus=${currentAssignedBus?.id})"
+                    android.util.Log.w("DRIVER_GPS",
+                        "NOT PUSHING: tripActive=$tripActive, bus=${bus?.id}")
+                    statusMessageState.value =
+                        "GPS OK but not pushing (trip=$tripActive, bus=${bus?.id})"
                 }
             }
         }
@@ -132,11 +133,11 @@ fun DriverMapScreen(navController: NavController) {
     // Find the bus assigned to this driver
     LaunchedEffect(currentUserId) {
         if (currentUserId.isEmpty()) {
-            statusMessage = "Not logged in"
+            statusMessageState.value = "Not logged in"
             return@LaunchedEffect
         }
 
-        statusMessage = "Finding your assigned bus..."
+        statusMessageState.value = "Finding your assigned bus..."
 
         database.child("buses")
             .addValueEventListener(object : ValueEventListener {
@@ -155,53 +156,55 @@ fun DriverMapScreen(navController: NavController) {
                                 .getValue(String::class.java) ?: ""
                             val id = child.key ?: ""
 
-                            assignedBus = Bus(
+                            assignedBusState.value = Bus(
                                 id = id,
                                 busNumber = busNumber,
                                 routeId = routeId,
                                 driverId = driverId
                             )
 
-                            // Check if trip was already active
-                            val tripActive = child.child("isTripActive")
-                                .getValue(Boolean::class.java) ?: false
-                            isTripActive = tripActive
-
                             found = true
-                            statusMessage = "Bus found: $busNumber"
+                            statusMessageState.value = "Bus found: $busNumber"
 
                             android.util.Log.d("DRIVER_GPS",
-                                "Assigned bus: id=$id, number=$busNumber, routeId=$routeId")
+                                "ASSIGNED BUS: id=$id, number=$busNumber")
                             break
                         }
                     }
 
                     if (!found) {
-                        statusMessage = "No bus assigned to you"
-                        android.util.Log.d("DRIVER_GPS",
-                            "No bus found for driver UID: $currentUserId")
+                        statusMessageState.value = "No bus assigned to you"
+                        android.util.Log.w("DRIVER_GPS",
+                            "NO BUS FOUND for driver UID=$currentUserId")
                     }
                 }
 
                 override fun onCancelled(error: DatabaseError) {
-                    statusMessage = "Error: ${error.message}"
+                    statusMessageState.value = "Error: ${error.message}"
                 }
             })
     }
 
-    // Request permission on launch if not granted
+    // Request permission on launch
     LaunchedEffect(Unit) {
         if (!hasLocationPermission) {
             permissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
     }
 
-    // Clean up location updates when leaving the screen
+    // Clean up location updates when leaving screen
     DisposableEffect(Unit) {
         onDispose {
             fusedLocationClient.removeLocationUpdates(locationCallback)
         }
     }
+
+    // Read state values for UI (using .value)
+    val assignedBus = assignedBusState.value
+    val isTripActive = tripActiveState.value
+    val currentLat = currentLatState.value
+    val currentLon = currentLonState.value
+    val statusMessage = statusMessageState.value
 
     /* ---- UI ---- */
 
@@ -218,9 +221,9 @@ fun DriverMapScreen(navController: NavController) {
                     color = Color.White,
                     style = MaterialTheme.typography.titleMedium
                 )
-                assignedBus?.let { bus ->
+                if (assignedBus != null) {
                     Text(
-                        text = "Bus: ${bus.busNumber}",
+                        text = "Bus: ${assignedBus.busNumber}",
                         color = Color.White,
                         style = MaterialTheme.typography.bodyMedium
                     )
@@ -250,31 +253,26 @@ fun DriverMapScreen(navController: NavController) {
             update = { map ->
                 map.overlays.clear()
 
-                val lat = currentLat
-                val lon = currentLon
-
-                if (lat != null && lon != null) {
+                if (currentLat != null && currentLon != null) {
                     val marker = Marker(map)
-                    marker.position = GeoPoint(lat, lon)
+                    marker.position = GeoPoint(currentLat, currentLon)
                     marker.title = "Your Location"
                     marker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                     map.overlays.add(marker)
-                    map.controller.setCenter(GeoPoint(lat, lon))
+                    map.controller.setCenter(GeoPoint(currentLat, currentLon))
                 }
 
                 map.invalidate()
             }
         )
 
-        // Buttons
+        // Start / Stop buttons
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(12.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-
-            // START TRIP
             Button(
                 onClick = {
                     if (!hasLocationPermission) {
@@ -282,20 +280,21 @@ fun DriverMapScreen(navController: NavController) {
                         return@Button
                     }
 
-                    val bus = assignedBus
+                    val bus = assignedBusState.value
                     if (bus == null) {
                         Toast.makeText(context, "No bus assigned!", Toast.LENGTH_SHORT).show()
                         return@Button
                     }
+
+                    // FIRST set state so callback can read it
+                    tripActiveState.value = true
+                    statusMessageState.value = "Starting GPS tracking..."
 
                     // Set trip active in Firebase
                     database.child("buses")
                         .child(bus.id)
                         .child("isTripActive")
                         .setValue(true)
-
-                    isTripActive = true
-                    statusMessage = "Starting GPS tracking..."
 
                     // Start location updates
                     fusedLocationClient.requestLocationUpdates(
@@ -304,45 +303,40 @@ fun DriverMapScreen(navController: NavController) {
                         Looper.getMainLooper()
                     )
 
+                    android.util.Log.d("DRIVER_GPS", "START TRIP pressed, busId=${bus.id}")
                     Toast.makeText(context, "Trip Started!", Toast.LENGTH_SHORT).show()
                 },
                 enabled = !isTripActive && assignedBus != null,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF2E7D32)
-                )
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
             ) {
                 Text("Start Trip")
             }
 
-            // STOP TRIP
             Button(
                 onClick = {
-                    val bus = assignedBus
+                    val bus = assignedBusState.value
                     if (bus != null) {
                         database.child("buses")
                             .child(bus.id)
                             .child("isTripActive")
                             .setValue(false)
 
-                        // Clear the current location
                         database.child("buses")
                             .child(bus.id)
                             .child("currentLocation")
                             .removeValue()
                     }
 
-                    isTripActive = false
+                    tripActiveState.value = false
                     fusedLocationClient.removeLocationUpdates(locationCallback)
-                    statusMessage = "Trip stopped"
+                    statusMessageState.value = "Trip stopped"
 
                     Toast.makeText(context, "Trip Stopped!", Toast.LENGTH_SHORT).show()
                 },
                 enabled = isTripActive,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFC62828)
-                )
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
             ) {
                 Text("Stop Trip")
             }
@@ -355,7 +349,7 @@ fun DriverMapScreen(navController: NavController) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    text = "GPS: ${currentLat}, ${currentLon}",
+                    text = "GPS: $currentLat, $currentLon",
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
                     style = MaterialTheme.typography.bodySmall
                 )
