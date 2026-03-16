@@ -1,0 +1,58 @@
+[versions]
+
+# Android
+agp = "9.0.1"
+kotlin = "2.2.10"
+compileSdk = "34"
+minSdk = "24"
+targetSdk = "34"
+
+# Firebase
+firebase-bom = "32.7.0"
+
+# Location
+play-services-location = "21.0.1"
+
+# OpenStreetMap
+osmdroid = "6.1.18"
+
+# Google Services
+google-services = "4.4.0"
+activityCompose = "1.8.2"
+
+compose-bom = "2024.06.00"
+
+[libraries]
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+
+# Compose BOM
+androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
+
+# Compose UI
+androidx-compose-ui = { module = "androidx.compose.ui:ui" }
+androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
+androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+
+# Material3
+androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
+
+# Firebase BOM
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
+
+firebase-auth = { module = "com.google.firebase:firebase-auth-ktx" }
+firebase-database = { module = "com.google.firebase:firebase-database-ktx" }
+firebase-firestore = { module = "com.google.firebase:firebase-firestore-ktx" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging-ktx" }
+
+# Location
+play-services-location = { module = "com.google.android.gms:play-services-location", version.ref = "play-services-location" }
+
+# OpenStreetMap
+osmdroid-android = { group = "org.osmdroid", name = "osmdroid-android", version.ref = "osmdroid" }
+
+[plugins]
+
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+google-services = { id = "com.google.gms.google-services", version.ref = "google-services" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

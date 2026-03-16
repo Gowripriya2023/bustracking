@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "948759895780",
+    "project_id": "collegebustracking-f21c0",
+    "storage_bucket": "collegebustracking-f21c0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:948759895780:android:468c111021619fab2256f1",
+        "android_client_info": {
+          "package_name": "com.example.collegebustracking"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCHpN_S7kdSeHY3fIjC-U07yxZKpBBm5DQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
