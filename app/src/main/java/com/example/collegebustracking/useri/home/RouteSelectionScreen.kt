@@ -78,16 +78,16 @@ fun RouteSelectionScreen(navController: NavController) {
                         }
                     }
                 ) {
-                    Text("View on Map")
-                }
                     Column {
                         Text(route.name)
                         Text(
                             "From: ${route.startPoint} → ${route.endPoint}",
                             style = MaterialTheme.typography.bodySmall
                         )
+                        Text("View on Map")
                     }
                 }
             }
         }
     }
+}

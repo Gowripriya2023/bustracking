@@ -129,10 +129,8 @@ fun LoginScreen(navController: NavController) {
                                         }
 
                                         "student" -> {
-                                            if (role.equals("student", ignoreCase = true)) {
-                                                navController.navigate("routes") {
-                                                    popUpTo("login") { inclusive = true }
-                                                }
+                                            navController.navigate("routes") {
+                                                popUpTo("login") { inclusive = true }
                                             }
                                         }
 

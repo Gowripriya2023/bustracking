@@ -17,6 +17,10 @@ import com.example.collegebustracking.useri.home.RouteSelectionScreen
 import com.example.collegebustracking.BusManagementScreen
 import com.example.collegebustracking.ManageRoutesScreen
 
+import com.example.collegebustracking.useri.RoleSelectionScreen
+import com.example.collegebustracking.ManageDriversScreen
+import com.example.collegebustracking.SendNotificationScreen
+
 class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -80,6 +84,20 @@ class MainActivity : ComponentActivity() {
                     composable("add_stop/{routeId}") { backStackEntry ->
                         val routeId = backStackEntry.arguments?.getString("routeId") ?: ""
                         AddStopOnMapScreen(navController, routeId)
+                    }
+
+                    composable("manage_drivers") {
+                        ManageDriversScreen(navController)
+                    }
+
+                    composable("send_notification") {
+                        SendNotificationScreen(navController)
+                    }
+
+                    composable("admin_live_map") {
+                        // Live map screen for admin - uses the same MapScreen
+                        // with a route selection or overview
+                        RouteSelectionScreen(navController)
                     }
                 }
             }
