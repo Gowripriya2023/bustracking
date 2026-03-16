@@ -50,14 +50,14 @@ fun calculateDistance(
 ): Double {
 
     val R = 6371e3
-    val φ1 = lat1 * PI / 180
-    val φ2 = lat2 * PI / 180
-    val Δφ = (lat2 - lat1) * PI / 180
-    val Δλ = (lon2 - lon1) * PI / 180
+    val p1 = lat1 * PI / 180
+    val p2 = lat2 * PI / 180
+    val dp = (lat2 - lat1) * PI / 180
+    val dl = (lon2 - lon1) * PI / 180
 
-    val a = sin(Δφ / 2) * sin(Δφ / 2) +
-            cos(φ1) * cos(φ2) *
-            sin(Δλ / 2) * sin(Δλ / 2)
+    val a = sin(dp / 2) * sin(dp / 2) +
+            cos(p1) * cos(p2) *
+            sin(dl / 2) * sin(dl / 2)
 
     val c = 2 * atan2(sqrt(a), sqrt(1 - a))
 
@@ -78,86 +78,89 @@ fun MapScreen(navController: NavController, routeId: String) {
     var nextStop by remember { mutableStateOf<BusStop?>(null) }
     var passedStops by remember { mutableStateOf(setOf<String>()) }
 
-    val mapView = remember { MapView(context) }
-    val busMarker = remember { Marker(mapView) }
-
     var busId by remember { mutableStateOf("") }
+
+    // Bus location as Compose state — triggers recomposition on every update
+    var busLat by remember { mutableStateOf<Double?>(null) }
+    var busLon by remember { mutableStateOf<Double?>(null) }
 
     var distanceToStop by remember { mutableStateOf(0.0) }
     var etaMinutes by remember { mutableStateOf(0) }
     var isTripActive by remember { mutableStateOf(false) }
 
-    /* ---------------- LOAD ROUTE + BUS ---------------- */
+    /* ---------------- LOAD STOPS (real-time) ---------------- */
 
     LaunchedEffect(routeId) {
-
-        // Load stops
         database.child("routes")
             .child(routeId)
             .child("stops")
-            .get()
-            .addOnSuccessListener { snapshot ->
-
-                val stopList = mutableListOf<BusStop>()
-
-                snapshot.children.forEach { child ->
-
-                    val stop = child.getValue(BusStop::class.java)
-
-                    stop?.let {
-                        stopList.add(it.copy(id = child.key ?: ""))
-                    }
-                }
-
-                stops = stopList
-            }
-
-        // Find bus using routeId
-        database.child("buses")
-            .orderByChild("routeId")
-            .equalTo(routeId)
-            .addListenerForSingleValueEvent(object : ValueEventListener {
-
+            .addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-
-                    for (busSnap in snapshot.children) {
-
-                        busId = busSnap.key ?: ""
-                        break
+                    val stopList = mutableListOf<BusStop>()
+                    snapshot.children.forEach { child ->
+                        val stop = child.getValue(BusStop::class.java)
+                        stop?.let {
+                            stopList.add(it.copy(id = child.key ?: ""))
+                        }
                     }
+                    stops = stopList
                 }
-
                 override fun onCancelled(error: DatabaseError) {}
             })
     }
 
-    /* ---------------- BUS LIVE LOCATION ---------------- */
+    /* ---------------- FIND BUS BY ROUTE (real-time) ---------------- */
+
+    LaunchedEffect(routeId) {
+        database.child("buses")
+            .orderByChild("routeId")
+            .equalTo(routeId)
+            .addValueEventListener(object : ValueEventListener {
+                override fun onDataChange(snapshot: DataSnapshot) {
+                    for (busSnap in snapshot.children) {
+                        val newBusId = busSnap.key ?: ""
+                        if (newBusId != busId) {
+                            busId = newBusId
+                        }
+                        break
+                    }
+                }
+                override fun onCancelled(error: DatabaseError) {}
+            })
+    }
+
+    /* ---------------- BUS LIVE LOCATION (real-time) ---------------- */
 
     LaunchedEffect(busId) {
 
         if (busId.isEmpty()) return@LaunchedEffect
 
+        // Listen to entire bus node for location + trip status
         database.child("buses")
             .child(busId)
-            .child("currentLocation")
             .addValueEventListener(object : ValueEventListener {
 
                 override fun onDataChange(snapshot: DataSnapshot) {
 
-                    val lat = snapshot.child("latitude").getValue(Double::class.java)
-                    val lon = snapshot.child("longitude").getValue(Double::class.java)
+                    val tripActive = snapshot.child("isTripActive")
+                        .getValue(Boolean::class.java) ?: false
 
-                    if (lat != null && lon != null) {
+                    val lat = snapshot.child("currentLocation")
+                        .child("latitude")
+                        .getValue(Double::class.java)
+
+                    val lon = snapshot.child("currentLocation")
+                        .child("longitude")
+                        .getValue(Double::class.java)
+
+                    if (tripActive && lat != null && lon != null) {
 
                         isTripActive = true
-                        val busLocation = GeoPoint(lat, lon)
-
-                        busMarker.position = busLocation
-                        mapView.controller.setCenter(busLocation)
+                        busLat = lat
+                        busLon = lon
 
                         // Find nearest stop
                         val nearest = stops.minByOrNull { stop ->
-
                             val dx = stop.latitude - lat
                             val dy = stop.longitude - lon
                             dx * dx + dy * dy
@@ -168,54 +171,33 @@ fun MapScreen(navController: NavController, routeId: String) {
                             nextStop = stop
 
                             val distance = calculateDistance(
-                                lat,
-                                lon,
-                                stop.latitude,
-                                stop.longitude
+                                lat, lon,
+                                stop.latitude, stop.longitude
                             )
 
                             distanceToStop = distance
 
                             val speed = 30.0
                             val speedMs = speed * 1000 / 3600
-
                             etaMinutes = (distance / speedMs / 60).toInt()
 
                             val newPassed = passedStops.toMutableSet()
-
                             stops.forEach { s ->
-
                                 val dx = s.latitude - lat
                                 val dy = s.longitude - lon
                                 val d = dx * dx + dy * dy
-
                                 if (d < 0.0001) {
                                     newPassed.add(s.id)
                                 }
                             }
-
                             passedStops = newPassed
                         }
 
                     } else {
                         isTripActive = false
-
-                        // Trip not started → show first stop
-                        if (stops.isNotEmpty()) {
-
-                            val firstStop = stops.first()
-
-                            val startLocation = GeoPoint(
-                                firstStop.latitude,
-                                firstStop.longitude
-                            )
-
-                            busMarker.position = startLocation
-                            mapView.controller.setCenter(startLocation)
-                        }
+                        busLat = null
+                        busLon = null
                     }
-
-                    mapView.invalidate()
                 }
 
                 override fun onCancelled(error: DatabaseError) {}
@@ -235,57 +217,74 @@ fun MapScreen(navController: NavController, routeId: String) {
                     ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
                 )
 
-                mapView.apply {
+                val mapView = MapView(ctx)
+                mapView.setTileSource(TileSourceFactory.MAPNIK)
+                mapView.setMultiTouchControls(true)
+                mapView.controller.setZoom(16.5)
 
-                    setTileSource(TileSourceFactory.MAPNIK)
-                    setMultiTouchControls(true)
-                    controller.setZoom(16.5)
+                // Default center (Kerala)
+                mapView.controller.setCenter(GeoPoint(10.8505, 76.2711))
 
-                    busMarker.icon = resizeDrawable(
-                        ctx,
-                        com.example.collegebustracking.R.drawable.bus_icon,
-                        60,
-                        60
-                    )
-
-                    busMarker.setAnchor(
-                        Marker.ANCHOR_CENTER,
-                        Marker.ANCHOR_BOTTOM
-                    )
-
-                    overlays.add(busMarker)
-                }
+                mapView
             },
 
             update = { map ->
 
                 map.overlays.clear()
 
-                // Stops
+                // Draw stop markers
                 stops.forEach { stop ->
-
                     val marker = Marker(map)
                     marker.position = GeoPoint(stop.latitude, stop.longitude)
                     marker.title = stop.name
-
                     map.overlays.add(marker)
                 }
 
-                // Route line
-                val routeLine = Polyline()
-
-                val points = stops.map {
-                    GeoPoint(it.latitude, it.longitude)
+                // Draw route line
+                if (stops.isNotEmpty()) {
+                    val routeLine = Polyline()
+                    val points = stops.map { GeoPoint(it.latitude, it.longitude) }
+                    routeLine.setPoints(points)
+                    routeLine.outlinePaint.color = android.graphics.Color.BLUE
+                    routeLine.outlinePaint.strokeWidth = 8f
+                    map.overlays.add(routeLine)
                 }
 
-                routeLine.setPoints(points)
-                routeLine.outlinePaint.color = android.graphics.Color.BLUE
-                routeLine.outlinePaint.strokeWidth = 8f
+                // Draw bus marker at live position
+                val lat = busLat
+                val lon = busLon
 
-                map.overlays.add(routeLine)
+                if (lat != null && lon != null) {
 
-                // Bus
-                map.overlays.add(busMarker)
+                    val busMarker = Marker(map)
+                    busMarker.position = GeoPoint(lat, lon)
+                    busMarker.title = "Bus Location"
+
+                    try {
+                        busMarker.icon = resizeDrawable(
+                            context,
+                            com.example.collegebustracking.R.drawable.bus_icon,
+                            60, 60
+                        )
+                    } catch (e: Exception) {
+                        // Use default marker if bus_icon not found
+                    }
+
+                    busMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    map.overlays.add(busMarker)
+
+                    // Center map on bus
+                    map.controller.setCenter(GeoPoint(lat, lon))
+
+                } else if (stops.isNotEmpty()) {
+                    // No live location — center on first stop
+                    val firstStop = stops.first()
+                    map.controller.setCenter(
+                        GeoPoint(firstStop.latitude, firstStop.longitude)
+                    )
+                }
+
+                map.invalidate()
             }
         )
 
@@ -302,7 +301,7 @@ fun MapScreen(navController: NavController, routeId: String) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isTripActive) "🟢 Bus is Live" else "⏳ Waiting for bus",
+                    text = if (isTripActive) "\uD83D\uDFE2 Bus is Live" else "\u23F3 Waiting for bus",
                     color = Color.White,
                     style = MaterialTheme.typography.titleSmall
                 )
@@ -331,8 +330,8 @@ fun MapScreen(navController: NavController, routeId: String) {
                         } else {
                             "${"%,.1f".format(distanceToStop / 1000)} km away"
                         }
-                        Text(text = "📍 $distText")
-                        Text(text = "⏱ ETA: ${if (etaMinutes < 1) "< 1 min" else "$etaMinutes min"}")
+                        Text(text = "\uD83D\uDCCD $distText")
+                        Text(text = "\u23F1 ETA: ${if (etaMinutes < 1) "< 1 min" else "$etaMinutes min"}")
                     }
                 }
             }
