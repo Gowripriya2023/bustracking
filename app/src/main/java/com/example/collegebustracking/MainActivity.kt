@@ -17,7 +17,7 @@ import com.example.collegebustracking.useri.home.RouteSelectionScreen
 import com.example.collegebustracking.BusManagementScreen
 import com.example.collegebustracking.ManageRoutesScreen
 
-import com.example.collegebustracking.useri.RoleSelectionScreen
+import com.example.collegebustracking.useri.admin.AdminLiveMapScreen
 import com.example.collegebustracking.ManageDriversScreen
 import com.example.collegebustracking.SendNotificationScreen
 
@@ -95,9 +95,7 @@ class MainActivity : ComponentActivity() {
                     }
 
                     composable("admin_live_map") {
-                        // Live map screen for admin - uses the same MapScreen
-                        // with a route selection or overview
-                        RouteSelectionScreen(navController)
+                        AdminLiveMapScreen(navController)
                     }
                 }
             }

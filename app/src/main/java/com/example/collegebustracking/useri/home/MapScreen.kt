@@ -1,10 +1,15 @@
 package com.example.collegebustracking.useri.home
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavController
 import com.example.collegebustracking.model.BusStop
@@ -80,6 +85,7 @@ fun MapScreen(navController: NavController, routeId: String) {
 
     var distanceToStop by remember { mutableStateOf(0.0) }
     var etaMinutes by remember { mutableStateOf(0) }
+    var isTripActive by remember { mutableStateOf(false) }
 
     /* ---------------- LOAD ROUTE + BUS ---------------- */
 
@@ -143,6 +149,7 @@ fun MapScreen(navController: NavController, routeId: String) {
 
                     if (lat != null && lon != null) {
 
+                        isTripActive = true
                         val busLocation = GeoPoint(lat, lon)
 
                         busMarker.position = busLocation
@@ -191,6 +198,7 @@ fun MapScreen(navController: NavController, routeId: String) {
                         }
 
                     } else {
+                        isTripActive = false
 
                         // Trip not started → show first stop
                         if (stops.isNotEmpty()) {
@@ -280,5 +288,54 @@ fun MapScreen(navController: NavController, routeId: String) {
                 map.overlays.add(busMarker)
             }
         )
+
+        // Live Info Bar
+        Surface(
+            color = if (isTripActive) Color(0xFF1B5E20) else Color(0xFF424242),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (isTripActive) "🟢 Bus is Live" else "⏳ Waiting for bus",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleSmall
+                )
+            }
+        }
+
+        if (isTripActive && nextStop != null) {
+            Surface(
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "Next Stop: ${nextStop!!.name}",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        val distText = if (distanceToStop < 1000) {
+                            "${distanceToStop.toInt()} m away"
+                        } else {
+                            "${"%,.1f".format(distanceToStop / 1000)} km away"
+                        }
+                        Text(text = "📍 $distText")
+                        Text(text = "⏱ ETA: ${if (etaMinutes < 1) "< 1 min" else "$etaMinutes min"}")
+                    }
+                }
+            }
+        }
     }
 }

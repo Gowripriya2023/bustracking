@@ -80,8 +80,10 @@ fun DriverMapScreen(navController: NavController) {
 
     val locationRequest = LocationRequest.Builder(
         Priority.PRIORITY_HIGH_ACCURACY,
-        5000
-    ).build()
+        3000
+    ).setMinUpdateIntervalMillis(2000)
+     .setWaitForAccurateLocation(false)
+     .build()
 
     val locationCallback = object : LocationCallback() {
         override fun onLocationResult(locationResult: LocationResult) {
