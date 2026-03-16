@@ -1,7 +1,6 @@
 package com.example.collegebustracking.useri.home
 
 import android.content.Context
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,39 +27,24 @@ fun resizeDrawable(
     width: Int,
     height: Int
 ): android.graphics.drawable.Drawable {
-
     val drawable = context.getDrawable(resId)!!
     val bitmap = (drawable as android.graphics.drawable.BitmapDrawable).bitmap
-
-    val smallBitmap = android.graphics.Bitmap.createScaledBitmap(
-        bitmap,
-        width,
-        height,
-        false
-    )
-
+    val smallBitmap = android.graphics.Bitmap.createScaledBitmap(bitmap, width, height, false)
     return android.graphics.drawable.BitmapDrawable(context.resources, smallBitmap)
 }
 
 fun calculateDistance(
-    lat1: Double,
-    lon1: Double,
-    lat2: Double,
-    lon2: Double
+    lat1: Double, lon1: Double,
+    lat2: Double, lon2: Double
 ): Double {
-
     val R = 6371e3
     val p1 = lat1 * PI / 180
     val p2 = lat2 * PI / 180
     val dp = (lat2 - lat1) * PI / 180
     val dl = (lon2 - lon1) * PI / 180
-
     val a = sin(dp / 2) * sin(dp / 2) +
-            cos(p1) * cos(p2) *
-            sin(dl / 2) * sin(dl / 2)
-
+            cos(p1) * cos(p2) * sin(dl / 2) * sin(dl / 2)
     val c = 2 * atan2(sqrt(a), sqrt(1 - a))
-
     return R * c
 }
 
@@ -74,126 +58,104 @@ fun MapScreen(navController: NavController, routeId: String) {
     ).reference
 
     var stops by remember { mutableStateOf(listOf<BusStop>()) }
-
     var nextStop by remember { mutableStateOf<BusStop?>(null) }
-    var passedStops by remember { mutableStateOf(setOf<String>()) }
 
-    var busId by remember { mutableStateOf("") }
-
-    // Bus location as Compose state — triggers recomposition on every update
+    // Bus live location as Compose state
     var busLat by remember { mutableStateOf<Double?>(null) }
     var busLon by remember { mutableStateOf<Double?>(null) }
+    var isTripActive by remember { mutableStateOf(false) }
+    var busId by remember { mutableStateOf("") }
 
     var distanceToStop by remember { mutableStateOf(0.0) }
     var etaMinutes by remember { mutableStateOf(0) }
-    var isTripActive by remember { mutableStateOf(false) }
 
-    /* ---------------- LOAD STOPS (real-time) ---------------- */
+    /* ---- LOAD STOPS ---- */
 
     LaunchedEffect(routeId) {
-        database.child("routes")
-            .child(routeId)
-            .child("stops")
+        database.child("routes").child(routeId).child("stops")
             .addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    val stopList = mutableListOf<BusStop>()
-                    snapshot.children.forEach { child ->
+                    val list = mutableListOf<BusStop>()
+                    for (child in snapshot.children) {
                         val stop = child.getValue(BusStop::class.java)
-                        stop?.let {
-                            stopList.add(it.copy(id = child.key ?: ""))
+                        if (stop != null) {
+                            list.add(stop.copy(id = child.key ?: ""))
                         }
                     }
-                    stops = stopList
+                    stops = list
                 }
                 override fun onCancelled(error: DatabaseError) {}
             })
     }
 
-    /* ---------------- FIND BUS BY ROUTE (real-time) ---------------- */
+    /* ---- FIND BUS + LISTEN LIVE LOCATION ---- */
+    // Load ALL buses, find the one matching this routeId, and track its location
+    // This avoids Firebase query indexing issues
 
     LaunchedEffect(routeId) {
         database.child("buses")
-            .orderByChild("routeId")
-            .equalTo(routeId)
             .addValueEventListener(object : ValueEventListener {
                 override fun onDataChange(snapshot: DataSnapshot) {
-                    for (busSnap in snapshot.children) {
-                        val newBusId = busSnap.key ?: ""
-                        if (newBusId != busId) {
-                            busId = newBusId
-                        }
-                        break
-                    }
-                }
-                override fun onCancelled(error: DatabaseError) {}
-            })
-    }
 
-    /* ---------------- BUS LIVE LOCATION (real-time) ---------------- */
+                    var foundBus = false
 
-    LaunchedEffect(busId) {
+                    for (child in snapshot.children) {
+                        val childRouteId = child.child("routeId")
+                            .getValue(String::class.java) ?: ""
 
-        if (busId.isEmpty()) return@LaunchedEffect
+                        if (childRouteId == routeId) {
 
-        // Listen to entire bus node for location + trip status
-        database.child("buses")
-            .child(busId)
-            .addValueEventListener(object : ValueEventListener {
+                            busId = child.key ?: ""
+                            foundBus = true
 
-                override fun onDataChange(snapshot: DataSnapshot) {
+                            // Read isTripActive
+                            val tripActive = child.child("isTripActive")
+                                .getValue(Boolean::class.java) ?: false
 
-                    val tripActive = snapshot.child("isTripActive")
-                        .getValue(Boolean::class.java) ?: false
+                            // Read currentLocation
+                            val lat = child.child("currentLocation")
+                                .child("latitude")
+                                .getValue(Double::class.java)
 
-                    val lat = snapshot.child("currentLocation")
-                        .child("latitude")
-                        .getValue(Double::class.java)
+                            val lon = child.child("currentLocation")
+                                .child("longitude")
+                                .getValue(Double::class.java)
 
-                    val lon = snapshot.child("currentLocation")
-                        .child("longitude")
-                        .getValue(Double::class.java)
+                            android.util.Log.d("MAP_DEBUG",
+                                "Bus=$busId tripActive=$tripActive lat=$lat lon=$lon")
 
-                    if (tripActive && lat != null && lon != null) {
+                            if (tripActive && lat != null && lon != null) {
+                                isTripActive = true
+                                busLat = lat
+                                busLon = lon
 
-                        isTripActive = true
-                        busLat = lat
-                        busLon = lon
-
-                        // Find nearest stop
-                        val nearest = stops.minByOrNull { stop ->
-                            val dx = stop.latitude - lat
-                            val dy = stop.longitude - lon
-                            dx * dx + dy * dy
-                        }
-
-                        nearest?.let { stop ->
-
-                            nextStop = stop
-
-                            val distance = calculateDistance(
-                                lat, lon,
-                                stop.latitude, stop.longitude
-                            )
-
-                            distanceToStop = distance
-
-                            val speed = 30.0
-                            val speedMs = speed * 1000 / 3600
-                            etaMinutes = (distance / speedMs / 60).toInt()
-
-                            val newPassed = passedStops.toMutableSet()
-                            stops.forEach { s ->
-                                val dx = s.latitude - lat
-                                val dy = s.longitude - lon
-                                val d = dx * dx + dy * dy
-                                if (d < 0.0001) {
-                                    newPassed.add(s.id)
+                                // Calculate nearest stop
+                                val nearest = stops.minByOrNull { s ->
+                                    val dx = s.latitude - lat
+                                    val dy = s.longitude - lon
+                                    dx * dx + dy * dy
                                 }
+                                nearest?.let { stop ->
+                                    nextStop = stop
+                                    val dist = calculateDistance(
+                                        lat, lon, stop.latitude, stop.longitude
+                                    )
+                                    distanceToStop = dist
+                                    val speedMs = 30.0 * 1000 / 3600
+                                    etaMinutes = (dist / speedMs / 60).toInt()
+                                }
+                            } else {
+                                isTripActive = false
+                                busLat = null
+                                busLon = null
                             }
-                            passedStops = newPassed
-                        }
 
-                    } else {
+                            break  // Found matching bus
+                        }
+                    }
+
+                    if (!foundBus) {
+                        android.util.Log.d("MAP_DEBUG", "No bus found for routeId=$routeId")
                         isTripActive = false
                         busLat = null
                         busLon = null
@@ -204,35 +166,28 @@ fun MapScreen(navController: NavController, routeId: String) {
             })
     }
 
-    /* ---------------- UI ---------------- */
+    /* ---- UI ---- */
 
     Column(modifier = Modifier.fillMaxSize()) {
 
         AndroidView(
             modifier = Modifier.weight(1f),
             factory = { ctx ->
-
                 Configuration.getInstance().load(
-                    ctx,
-                    ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
+                    ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
                 )
-
                 val mapView = MapView(ctx)
                 mapView.setTileSource(TileSourceFactory.MAPNIK)
                 mapView.setMultiTouchControls(true)
                 mapView.controller.setZoom(16.5)
-
-                // Default center (Kerala)
                 mapView.controller.setCenter(GeoPoint(10.8505, 76.2711))
-
                 mapView
             },
-
             update = { map ->
 
                 map.overlays.clear()
 
-                // Draw stop markers
+                // Stop markers
                 stops.forEach { stop ->
                     val marker = Marker(map)
                     marker.position = GeoPoint(stop.latitude, stop.longitude)
@@ -240,55 +195,43 @@ fun MapScreen(navController: NavController, routeId: String) {
                     map.overlays.add(marker)
                 }
 
-                // Draw route line
+                // Route line
                 if (stops.isNotEmpty()) {
                     val routeLine = Polyline()
-                    val points = stops.map { GeoPoint(it.latitude, it.longitude) }
-                    routeLine.setPoints(points)
+                    routeLine.setPoints(stops.map { GeoPoint(it.latitude, it.longitude) })
                     routeLine.outlinePaint.color = android.graphics.Color.BLUE
                     routeLine.outlinePaint.strokeWidth = 8f
                     map.overlays.add(routeLine)
                 }
 
-                // Draw bus marker at live position
+                // Bus marker — uses Compose state so this runs on every location update
                 val lat = busLat
                 val lon = busLon
 
                 if (lat != null && lon != null) {
-
                     val busMarker = Marker(map)
                     busMarker.position = GeoPoint(lat, lon)
-                    busMarker.title = "Bus Location"
-
+                    busMarker.title = "Bus Live Location"
                     try {
                         busMarker.icon = resizeDrawable(
                             context,
                             com.example.collegebustracking.R.drawable.bus_icon,
                             60, 60
                         )
-                    } catch (e: Exception) {
-                        // Use default marker if bus_icon not found
-                    }
-
+                    } catch (e: Exception) { }
                     busMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                     map.overlays.add(busMarker)
-
-                    // Center map on bus
                     map.controller.setCenter(GeoPoint(lat, lon))
-
                 } else if (stops.isNotEmpty()) {
-                    // No live location — center on first stop
-                    val firstStop = stops.first()
-                    map.controller.setCenter(
-                        GeoPoint(firstStop.latitude, firstStop.longitude)
-                    )
+                    val first = stops.first()
+                    map.controller.setCenter(GeoPoint(first.latitude, first.longitude))
                 }
 
                 map.invalidate()
             }
         )
 
-        // Live Info Bar
+        // Status bar
         Surface(
             color = if (isTripActive) Color(0xFF1B5E20) else Color(0xFF424242),
             modifier = Modifier.fillMaxWidth()
@@ -308,14 +251,13 @@ fun MapScreen(navController: NavController, routeId: String) {
             }
         }
 
+        // ETA info
         if (isTripActive && nextStop != null) {
             Surface(
                 color = MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
                     Text(
                         text = "Next Stop: ${nextStop!!.name}",
                         style = MaterialTheme.typography.titleMedium
