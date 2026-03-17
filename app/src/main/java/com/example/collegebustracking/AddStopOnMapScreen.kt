@@ -38,6 +38,7 @@ fun AddStopOnMapScreen(
     var selectedLat by remember { mutableStateOf(0.0) }
     var selectedLon by remember { mutableStateOf(0.0) }
     var stopName by remember { mutableStateOf("") }
+    var expectedArrivalTime by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
 
     var mapViewRef by remember { mutableStateOf<MapView?>(null) }
@@ -148,6 +149,17 @@ fun AddStopOnMapScreen(
                 .padding(8.dp)
         )
 
+        // 🕐 EXPECTED ARRIVAL TIME FIELD
+        OutlinedTextField(
+            value = expectedArrivalTime,
+            onValueChange = { expectedArrivalTime = it },
+            label = { Text("Expected Arrival Time (e.g. 08:15 AM)") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            singleLine = true
+        )
+
         // 💾 SAVE BUTTON
         Button(
             onClick = {
@@ -163,7 +175,8 @@ fun AddStopOnMapScreen(
                         id = stopId,
                         name = stopName,
                         latitude = selectedLat,
-                        longitude = selectedLon
+                        longitude = selectedLon,
+                        expectedArrivalTime = expectedArrivalTime.trim()
                     )
 
                     database.child("routes")

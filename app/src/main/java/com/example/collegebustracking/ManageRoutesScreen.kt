@@ -264,7 +264,12 @@ fun ManageRoutesScreen(navController: NavController) {
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
 
-                                Text(stop.name)
+                                Text(
+                                    if (stop.expectedArrivalTime.isNotBlank())
+                                        "${stop.name} — Expected: ${stop.expectedArrivalTime}"
+                                    else
+                                        stop.name
+                                )
 
                                 Button(
                                     onClick = {

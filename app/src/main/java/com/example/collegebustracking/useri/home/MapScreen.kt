@@ -20,6 +20,8 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.Marker
 import kotlin.math.*
+import java.text.SimpleDateFormat
+import java.util.*
 
 fun resizeDrawable(
     context: Context,
@@ -46,6 +48,35 @@ fun calculateDistance(
             cos(p1) * cos(p2) * sin(dl / 2) * sin(dl / 2)
     val c = 2 * atan2(sqrt(a), sqrt(1 - a))
     return R * c
+}
+
+/**
+ * Calculate delay in minutes. Returns positive if delayed, 0 or negative if on time.
+ */
+fun calculateDelayMinutes(expectedTimeStr: String, etaMinutes: Int): Int {
+    if (expectedTimeStr.isBlank()) return 0
+    return try {
+        val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
+        val expectedTime = sdf.parse(expectedTimeStr) ?: return 0
+
+        // Build expected calendar for today
+        val expectedCal = Calendar.getInstance().apply {
+            val parsed = Calendar.getInstance().apply { time = expectedTime }
+            set(Calendar.HOUR_OF_DAY, parsed.get(Calendar.HOUR_OF_DAY))
+            set(Calendar.MINUTE, parsed.get(Calendar.MINUTE))
+            set(Calendar.SECOND, 0)
+        }
+
+        // Estimated arrival = now + etaMinutes
+        val estimatedArrivalCal = Calendar.getInstance().apply {
+            add(Calendar.MINUTE, etaMinutes)
+        }
+
+        val diffMs = estimatedArrivalCal.timeInMillis - expectedCal.timeInMillis
+        (diffMs / 60000).toInt()
+    } catch (e: Exception) {
+        0
+    }
 }
 
 @Composable
@@ -270,10 +301,39 @@ fun MapScreen(navController: NavController, routeId: String) {
                         val distText = if (distanceToStop < 1000) {
                             "${distanceToStop.toInt()} m away"
                         } else {
-                            "${"%,.1f".format(distanceToStop / 1000)} km away"
+                            "${String.format("%.1f", distanceToStop / 1000)} km away"
                         }
                         Text(text = "\uD83D\uDCCD $distText")
                         Text(text = "\u23F1 ETA: ${if (etaMinutes < 1) "< 1 min" else "$etaMinutes min"}")
+                    }
+
+                    // Expected Arrival Time + Delay Info
+                    val expectedTime = nextStop!!.expectedArrivalTime
+                    if (expectedTime.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        val delayMin = calculateDelayMinutes(expectedTime, etaMinutes)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "\uD83D\uDD50 Expected: $expectedTime",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            if (delayMin > 0) {
+                                Text(
+                                    text = "\u26A0\uFE0F Delayed by $delayMin min",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFFD32F2F)
+                                )
+                            } else {
+                                Text(
+                                    text = "\u2705 On time",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = Color(0xFF2E7D32)
+                                )
+                            }
+                        }
                     }
                 }
             }

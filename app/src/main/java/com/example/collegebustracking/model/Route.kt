@@ -13,5 +13,6 @@ data class BusStop(
     val id: String = "",
     val name: String = "",
     val latitude: Double = 0.0,
-    val longitude: Double = 0.0
+    val longitude: Double = 0.0,
+    val expectedArrivalTime: String = ""   // e.g. "08:15 AM", set by admin
 )
