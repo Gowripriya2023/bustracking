@@ -4,11 +4,15 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.*
+
+private val SlateBlue = Color(0xFF6A5ACD)
 
 @Composable
 fun LoginScreen(navController: NavController) {
@@ -23,6 +27,19 @@ fun LoginScreen(navController: NavController) {
         .getInstance("https://collegebustracking-f21c0-default-rtdb.asia-southeast1.firebasedatabase.app/")
         .reference
 
+    // Shared text field colors: white background, SlateBlue typed text
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = Color.White,
+        unfocusedContainerColor = Color.White,
+        focusedTextColor = SlateBlue,
+        unfocusedTextColor = SlateBlue,
+        focusedBorderColor = SlateBlue,
+        unfocusedBorderColor = SlateBlue.copy(alpha = 0.5f),
+        focusedLabelColor = SlateBlue,
+        unfocusedLabelColor = SlateBlue.copy(alpha = 0.7f),
+        cursorColor = SlateBlue
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -32,7 +49,8 @@ fun LoginScreen(navController: NavController) {
 
         Text(
             text = "College Bus Tracking",
-            style = MaterialTheme.typography.headlineMedium
+            style = MaterialTheme.typography.headlineMedium,
+            color = SlateBlue
         )
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -42,7 +60,9 @@ fun LoginScreen(navController: NavController) {
             onValueChange = { email = it },
             label = { Text("Email") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = textFieldColors,
+            textStyle = TextStyle(color = SlateBlue)
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -53,13 +73,15 @@ fun LoginScreen(navController: NavController) {
             label = { Text("Password") },
             visualTransformation = PasswordVisualTransformation(),
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            colors = textFieldColors,
+            textStyle = TextStyle(color = SlateBlue)
         )
 
         TextButton(
             onClick = { navController.navigate("register") }
         ) {
-            Text("Don't have an account? Register")
+            Text("Don't have an account? Register", color = SlateBlue)
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -152,7 +174,11 @@ fun LoginScreen(navController: NavController) {
                     }
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !isLoading
+            enabled = !isLoading,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = SlateBlue,
+                contentColor = Color.White
+            )
         ) {
             Text(if (isLoading) "Logging in..." else "Login")
         }

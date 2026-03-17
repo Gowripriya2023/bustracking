@@ -4,10 +4,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.database.FirebaseDatabase
+
+private val SlateBlue = Color(0xFF6A5ACD)
 
 @Composable
 fun RegisterScreen(navController: NavController) {
@@ -24,6 +28,18 @@ fun RegisterScreen(navController: NavController) {
         .getInstance("https://collegebustracking-f21c0-default-rtdb.asia-southeast1.firebasedatabase.app/")
         .reference
 
+    val textFieldColors = OutlinedTextFieldDefaults.colors(
+        focusedContainerColor = Color.White,
+        unfocusedContainerColor = Color.White,
+        focusedTextColor = SlateBlue,
+        unfocusedTextColor = SlateBlue,
+        focusedBorderColor = SlateBlue,
+        unfocusedBorderColor = SlateBlue.copy(alpha = 0.5f),
+        focusedLabelColor = SlateBlue,
+        unfocusedLabelColor = SlateBlue.copy(alpha = 0.7f),
+        cursorColor = SlateBlue
+    )
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -31,7 +47,11 @@ fun RegisterScreen(navController: NavController) {
         verticalArrangement = Arrangement.Center
     ) {
 
-        Text("Create Account", style = MaterialTheme.typography.headlineMedium)
+        Text(
+            "Create Account",
+            style = MaterialTheme.typography.headlineMedium,
+            color = SlateBlue
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -39,7 +59,9 @@ fun RegisterScreen(navController: NavController) {
             value = name,
             onValueChange = { name = it },
             label = { Text("Name") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = textFieldColors,
+            textStyle = TextStyle(color = SlateBlue)
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -48,7 +70,9 @@ fun RegisterScreen(navController: NavController) {
             value = email,
             onValueChange = { email = it },
             label = { Text("Email") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = textFieldColors,
+            textStyle = TextStyle(color = SlateBlue)
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -57,27 +81,37 @@ fun RegisterScreen(navController: NavController) {
             value = password,
             onValueChange = { password = it },
             label = { Text("Password") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = textFieldColors,
+            textStyle = TextStyle(color = SlateBlue)
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Text("Select Role:")
+        Text("Select Role:", color = SlateBlue)
 
         Row {
             RadioButton(
                 selected = role == "student",
-                onClick = { role = "student" }
+                onClick = { role = "student" },
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = SlateBlue,
+                    unselectedColor = SlateBlue.copy(alpha = 0.5f)
+                )
             )
-            Text("Student")
+            Text("Student", color = SlateBlue)
 
             Spacer(modifier = Modifier.width(16.dp))
 
             RadioButton(
                 selected = role == "driver",
-                onClick = { role = "driver" }
+                onClick = { role = "driver" },
+                colors = RadioButtonDefaults.colors(
+                    selectedColor = SlateBlue,
+                    unselectedColor = SlateBlue.copy(alpha = 0.5f)
+                )
             )
-            Text("Driver")
+            Text("Driver", color = SlateBlue)
         }
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -118,7 +152,11 @@ fun RegisterScreen(navController: NavController) {
                     }
 
             },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = SlateBlue,
+                contentColor = Color.White
+            )
         ) {
             Text(if (isLoading) "Registering..." else "Register")
         }
@@ -128,7 +166,7 @@ fun RegisterScreen(navController: NavController) {
         TextButton(onClick = {
             navController.navigate("login")
         }) {
-            Text("Already have an account? Login")
+            Text("Already have an account? Login", color = SlateBlue)
         }
 
         if (message.isNotEmpty()) {

@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -128,8 +129,14 @@ fun AdminLiveMapScreen(navController: NavController) {
             }
 
             // Map
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .clipToBounds()
+            ) {
             AndroidView(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
 
                     Configuration.getInstance().load(
@@ -171,6 +178,7 @@ fun AdminLiveMapScreen(navController: NavController) {
                     map.invalidate()
                 }
             )
+            } // end Box
 
             // Bus list below map
             if (liveBuses.isNotEmpty()) {

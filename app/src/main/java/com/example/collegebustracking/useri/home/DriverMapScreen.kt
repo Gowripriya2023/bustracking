@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -316,7 +317,7 @@ fun DriverMapScreen(navController: NavController) {
 
         // Status bar with notification bell and logout
         Surface(
-            color = if (isTripActive) Color(0xFF1B5E20) else Color(0xFF424242),
+            color = if (isTripActive) Color(0xFF6A5ACD) else Color(0xFF9D8FE0),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
@@ -411,8 +412,14 @@ fun DriverMapScreen(navController: NavController) {
         }
 
         // Map showing driver's own location
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clipToBounds()
+        ) {
         AndroidView(
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 Configuration.getInstance().load(
                     ctx, ctx.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
@@ -439,6 +446,7 @@ fun DriverMapScreen(navController: NavController) {
                 map.invalidate()
             }
         )
+        } // end Box
 
         // Start / Stop buttons
         Row(
@@ -484,7 +492,7 @@ fun DriverMapScreen(navController: NavController) {
                 },
                 enabled = !isTripActive && assignedBus != null,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A5ACD))
             ) {
                 Text("Start Trip")
             }
@@ -512,7 +520,7 @@ fun DriverMapScreen(navController: NavController) {
                 },
                 enabled = isTripActive,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFC62828))
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF9D8FE0))
             ) {
                 Text("Stop Trip")
             }

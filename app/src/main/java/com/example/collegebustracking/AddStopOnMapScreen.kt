@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -16,8 +17,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapEventsReceiver
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import java.net.HttpURLConnection
 import java.net.URL
@@ -73,7 +76,7 @@ fun AddStopOnMapScreen(
                             mapViewRef?.controller?.setZoom(17.0)
                             mapViewRef?.controller?.setCenter(it)
 
-                            mapViewRef?.overlays?.clear()
+                            mapViewRef?.overlays?.removeAll { it is Marker }
 
                             val marker = Marker(mapViewRef)
                             marker.position = it
@@ -96,6 +99,12 @@ fun AddStopOnMapScreen(
         }
 
         // 🗺 MAP VIEW
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clipToBounds()
+        ) {
         AndroidView(
             factory = {
 
@@ -104,6 +113,7 @@ fun AddStopOnMapScreen(
 
                 val map = MapView(context)
                 map.setMultiTouchControls(true)
+                map.setBuiltInZoomControls(true)
                 map.controller.setZoom(15.0)
 
                 val defaultPoint = GeoPoint(10.8505, 76.2711) // Kerala default
@@ -111,33 +121,35 @@ fun AddStopOnMapScreen(
 
                 mapViewRef = map
 
-                map.setOnTouchListener { _, event ->
+                // Use MapEventsOverlay for tap handling (allows zoom gestures to pass through)
+                val tapOverlay = MapEventsOverlay(object : MapEventsReceiver {
+                    override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
+                        if (p == null) return false
 
-                    val projection = map.projection
-                    val geoPoint = projection.fromPixels(
-                        event.x.toInt(),
-                        event.y.toInt()
-                    ) as GeoPoint
+                        selectedLat = p.latitude
+                        selectedLon = p.longitude
 
-                    selectedLat = geoPoint.latitude
-                    selectedLon = geoPoint.longitude
+                        // Keep the tap overlay, clear only markers
+                        map.overlays.removeAll { it is Marker }
 
-                    map.overlays.clear()
+                        val marker = Marker(map)
+                        marker.position = p
+                        marker.title = "Selected Stop"
+                        map.overlays.add(marker)
 
-                    val marker = Marker(map)
-                    marker.position = geoPoint
-                    marker.title = "Selected Stop"
-                    map.overlays.add(marker)
+                        map.invalidate()
+                        return true
+                    }
 
-                    map.invalidate()
-
-                    true
-                }
+                    override fun longPressHelper(p: GeoPoint?): Boolean = false
+                })
+                map.overlays.add(tapOverlay)
 
                 map
             },
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.fillMaxSize()
         )
+        } // end Box
 
         // 📝 STOP NAME FIELD
         OutlinedTextField(
