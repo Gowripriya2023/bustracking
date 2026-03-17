@@ -22,6 +22,11 @@ import org.osmdroid.views.overlay.Marker
 import kotlin.math.*
 import java.text.SimpleDateFormat
 import java.util.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 fun resizeDrawable(
     context: Context,
@@ -59,7 +64,6 @@ fun calculateDelayMinutes(expectedTimeStr: String, etaMinutes: Int): Int {
         val sdf = SimpleDateFormat("hh:mm a", Locale.getDefault())
         val expectedTime = sdf.parse(expectedTimeStr) ?: return 0
 
-        // Build expected calendar for today
         val expectedCal = Calendar.getInstance().apply {
             val parsed = Calendar.getInstance().apply { time = expectedTime }
             set(Calendar.HOUR_OF_DAY, parsed.get(Calendar.HOUR_OF_DAY))
@@ -67,7 +71,6 @@ fun calculateDelayMinutes(expectedTimeStr: String, etaMinutes: Int): Int {
             set(Calendar.SECOND, 0)
         }
 
-        // Estimated arrival = now + etaMinutes
         val estimatedArrivalCal = Calendar.getInstance().apply {
             add(Calendar.MINUTE, etaMinutes)
         }
@@ -76,6 +79,55 @@ fun calculateDelayMinutes(expectedTimeStr: String, etaMinutes: Int): Int {
         (diffMs / 60000).toInt()
     } catch (e: Exception) {
         0
+    }
+}
+
+/**
+ * Fetch road-following route between two points using OSRM public API.
+ * Returns a list of GeoPoints following actual roads.
+ * Falls back to a straight line if the API fails.
+ */
+suspend fun fetchRoadRoute(
+    fromLat: Double, fromLon: Double,
+    toLat: Double, toLon: Double
+): List<GeoPoint> {
+    return withContext(Dispatchers.IO) {
+        try {
+            val urlStr = "https://router.project-osrm.org/route/v1/driving/" +
+                    "$fromLon,$fromLat;$toLon,$toLat" +
+                    "?overview=full&geometries=geojson"
+
+            val connection = URL(urlStr).openConnection() as HttpURLConnection
+            connection.setRequestProperty("User-Agent", "CollegeBusTrackingApp")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+
+            val response = connection.inputStream.bufferedReader().readText()
+            val json = JSONObject(response)
+
+            val routes = json.getJSONArray("routes")
+            if (routes.length() > 0) {
+                val geometry = routes.getJSONObject(0)
+                    .getJSONObject("geometry")
+                val coordinates = geometry.getJSONArray("coordinates")
+
+                val points = mutableListOf<GeoPoint>()
+                for (i in 0 until coordinates.length()) {
+                    val coord = coordinates.getJSONArray(i)
+                    val lon = coord.getDouble(0)
+                    val lat = coord.getDouble(1)
+                    points.add(GeoPoint(lat, lon))
+                }
+                points
+            } else {
+                // Fallback: straight line
+                listOf(GeoPoint(fromLat, fromLon), GeoPoint(toLat, toLon))
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("OSRM", "Route fetch failed: ${e.message}")
+            // Fallback: straight line
+            listOf(GeoPoint(fromLat, fromLon), GeoPoint(toLat, toLon))
+        }
     }
 }
 
@@ -90,6 +142,7 @@ fun MapScreen(navController: NavController, routeId: String) {
 
     var stops by remember { mutableStateOf(listOf<BusStop>()) }
     var nextStop by remember { mutableStateOf<BusStop?>(null) }
+    var nextStopIndex by remember { mutableStateOf(-1) }
 
     // Bus live location as Compose state
     var busLat by remember { mutableStateOf<Double?>(null) }
@@ -99,6 +152,13 @@ fun MapScreen(navController: NavController, routeId: String) {
 
     var distanceToStop by remember { mutableStateOf(0.0) }
     var etaMinutes by remember { mutableStateOf(0) }
+
+    // Road route segments between consecutive stops (cached)
+    // routeSegments[i] = road route from stops[i] to stops[i+1]
+    var routeSegments by remember { mutableStateOf(listOf<List<GeoPoint>>()) }
+
+    // Road route from bus current location to next stop (live)
+    var busToStopRoute by remember { mutableStateOf(listOf<GeoPoint>()) }
 
     /* ---- LOAD STOPS ---- */
 
@@ -119,9 +179,28 @@ fun MapScreen(navController: NavController, routeId: String) {
             })
     }
 
+    /* ---- FETCH ROAD ROUTES BETWEEN STOPS (cached) ---- */
+
+    LaunchedEffect(stops) {
+        if (stops.size >= 2) {
+            val segments = mutableListOf<List<GeoPoint>>()
+            for (i in 0 until stops.size - 1) {
+                val from = stops[i]
+                val to = stops[i + 1]
+                val route = fetchRoadRoute(
+                    from.latitude, from.longitude,
+                    to.latitude, to.longitude
+                )
+                segments.add(route)
+            }
+            routeSegments = segments
+            android.util.Log.d("OSRM", "Fetched ${segments.size} road segments")
+        } else {
+            routeSegments = emptyList()
+        }
+    }
+
     /* ---- FIND BUS + LISTEN LIVE LOCATION ---- */
-    // Load ALL buses, find the one matching this routeId, and track its location
-    // This avoids Firebase query indexing issues
 
     LaunchedEffect(routeId) {
         database.child("buses")
@@ -139,11 +218,9 @@ fun MapScreen(navController: NavController, routeId: String) {
                             busId = child.key ?: ""
                             foundBus = true
 
-                            // Read isTripActive
                             val tripActive = child.child("isTripActive")
                                 .getValue(Boolean::class.java) ?: false
 
-                            // Read currentLocation
                             val lat = child.child("currentLocation")
                                 .child("latitude")
                                 .getValue(Double::class.java)
@@ -160,14 +237,23 @@ fun MapScreen(navController: NavController, routeId: String) {
                                 busLat = lat
                                 busLon = lon
 
-                                // Calculate nearest stop
-                                val nearest = stops.minByOrNull { s ->
+                                // Find nearest stop and its index
+                                var nearestIdx = -1
+                                var nearestDist = Double.MAX_VALUE
+                                stops.forEachIndexed { idx, s ->
                                     val dx = s.latitude - lat
                                     val dy = s.longitude - lon
-                                    dx * dx + dy * dy
+                                    val d = dx * dx + dy * dy
+                                    if (d < nearestDist) {
+                                        nearestDist = d
+                                        nearestIdx = idx
+                                    }
                                 }
-                                nearest?.let { stop ->
+
+                                if (nearestIdx >= 0) {
+                                    val stop = stops[nearestIdx]
                                     nextStop = stop
+                                    nextStopIndex = nearestIdx
                                     val dist = calculateDistance(
                                         lat, lon, stop.latitude, stop.longitude
                                     )
@@ -181,7 +267,7 @@ fun MapScreen(navController: NavController, routeId: String) {
                                 busLon = null
                             }
 
-                            break  // Found matching bus
+                            break
                         }
                     }
 
@@ -195,6 +281,19 @@ fun MapScreen(navController: NavController, routeId: String) {
 
                 override fun onCancelled(error: DatabaseError) {}
             })
+    }
+
+    /* ---- FETCH LIVE BUS-TO-STOP ROAD ROUTE ---- */
+
+    LaunchedEffect(busLat, busLon, nextStopIndex) {
+        val lat = busLat
+        val lon = busLon
+        if (lat != null && lon != null && nextStopIndex >= 0 && nextStopIndex < stops.size) {
+            val stop = stops[nextStopIndex]
+            busToStopRoute = fetchRoadRoute(lat, lon, stop.latitude, stop.longitude)
+        } else {
+            busToStopRoute = emptyList()
+        }
     }
 
     /* ---- UI ---- */
@@ -226,19 +325,50 @@ fun MapScreen(navController: NavController, routeId: String) {
                     map.overlays.add(marker)
                 }
 
-                // Route line
-                if (stops.isNotEmpty()) {
-                    val routeLine = Polyline()
-                    routeLine.setPoints(stops.map { GeoPoint(it.latitude, it.longitude) })
-                    routeLine.outlinePaint.color = android.graphics.Color.BLUE
-                    routeLine.outlinePaint.strokeWidth = 8f
-                    map.overlays.add(routeLine)
-                }
-
-                // Bus marker — uses Compose state so this runs on every location update
+                // Draw road route segments with color coding
+                val currentNextIdx = nextStopIndex
                 val lat = busLat
                 val lon = busLon
 
+                if (routeSegments.isNotEmpty()) {
+                    routeSegments.forEachIndexed { idx, segmentPoints ->
+                        val polyline = Polyline()
+                        polyline.setPoints(segmentPoints)
+
+                        if (isTripActive && currentNextIdx >= 0) {
+                            if (idx < currentNextIdx) {
+                                // Passed segment — light gray
+                                polyline.outlinePaint.color =
+                                    android.graphics.Color.parseColor("#BDBDBD")
+                                polyline.outlinePaint.strokeWidth = 8f
+                            } else {
+                                // Upcoming segment — blue
+                                polyline.outlinePaint.color =
+                                    android.graphics.Color.parseColor("#1565C0")
+                                polyline.outlinePaint.strokeWidth = 10f
+                            }
+                        } else {
+                            // No active trip — all blue
+                            polyline.outlinePaint.color =
+                                android.graphics.Color.parseColor("#1565C0")
+                            polyline.outlinePaint.strokeWidth = 8f
+                        }
+
+                        map.overlays.add(polyline)
+                    }
+                }
+
+                // Draw bus-to-next-stop road route (blue, on top)
+                if (busToStopRoute.isNotEmpty() && isTripActive) {
+                    val busLine = Polyline()
+                    busLine.setPoints(busToStopRoute)
+                    busLine.outlinePaint.color =
+                        android.graphics.Color.parseColor("#1565C0")
+                    busLine.outlinePaint.strokeWidth = 10f
+                    map.overlays.add(busLine)
+                }
+
+                // Bus marker
                 if (lat != null && lon != null) {
                     val busMarker = Marker(map)
                     busMarker.position = GeoPoint(lat, lon)
