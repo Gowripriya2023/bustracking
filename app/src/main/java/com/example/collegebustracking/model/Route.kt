@@ -14,5 +14,6 @@ data class BusStop(
     val name: String = "",
     val latitude: Double = 0.0,
     val longitude: Double = 0.0,
-    val expectedArrivalTime: String = ""   // e.g. "08:15 AM", set by admin
+    val expectedArrivalTime: String = "",   // e.g. "08:15 AM", set by admin
+    val order: Int = 0   // ascending order by distance from first stop
 )

@@ -20,6 +20,7 @@ import com.example.collegebustracking.ManageRoutesScreen
 import com.example.collegebustracking.useri.admin.AdminLiveMapScreen
 import com.example.collegebustracking.ManageDriversScreen
 import com.example.collegebustracking.SendNotificationScreen
+import com.example.collegebustracking.useri.home.DriverSendNotificationScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -96,6 +97,14 @@ class MainActivity : ComponentActivity() {
 
                     composable("admin_live_map") {
                         AdminLiveMapScreen(navController)
+                    }
+
+                    composable(
+                        route = "driver_send_notification/{busNumber}",
+                        arguments = listOf(navArgument("busNumber") { type = NavType.StringType })
+                    ) { backStackEntry ->
+                        val busNumber = backStackEntry.arguments?.getString("busNumber") ?: ""
+                        DriverSendNotificationScreen(navController, busNumber)
                     }
                 }
             }

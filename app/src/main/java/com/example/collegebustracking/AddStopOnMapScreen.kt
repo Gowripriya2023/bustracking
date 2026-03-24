@@ -11,7 +11,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.navigation.NavController
 import com.example.collegebustracking.model.BusStop
+import com.example.collegebustracking.useri.home.calculateDistance
+import com.google.firebase.database.DataSnapshot
+import com.google.firebase.database.DatabaseError
 import com.google.firebase.database.FirebaseDatabase
+import com.google.firebase.database.ValueEventListener
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -178,28 +182,67 @@ fun AddStopOnMapScreen(
 
                 if (stopName.isNotBlank() && selectedLat != 0.0) {
 
-                    val stopId = database.child("routes")
+                    val stopsRef = database.child("routes")
                         .child(routeId)
                         .child("stops")
-                        .push().key!!
+
+                    val stopId = stopsRef.push().key!!
 
                     val stop = BusStop(
                         id = stopId,
                         name = stopName,
                         latitude = selectedLat,
                         longitude = selectedLon,
-                        expectedArrivalTime = expectedArrivalTime.trim()
+                        expectedArrivalTime = expectedArrivalTime.trim(),
+                        order = 0
                     )
 
-                    database.child("routes")
-                        .child(routeId)
-                        .child("stops")
-                        .child(stopId)
-                        .setValue(stop)
+                    // Save the new stop first
+                    stopsRef.child(stopId).setValue(stop)
+                        .addOnSuccessListener {
+                            // After saving, fetch all stops and re-sort by distance from the first stop
+                            stopsRef.addListenerForSingleValueEvent(object : ValueEventListener {
+                                override fun onDataChange(snapshot: DataSnapshot) {
+                                    val allStops = mutableListOf<Pair<String, BusStop>>()
+                                    for (child in snapshot.children) {
+                                        val s = child.getValue(BusStop::class.java)
+                                        if (s != null) {
+                                            allStops.add(child.key!! to s)
+                                        }
+                                    }
 
-                    Toast.makeText(context, "Stop Added Successfully", Toast.LENGTH_SHORT).show()
+                                    if (allStops.size >= 2) {
+                                        // Use the first stop (by current order or first added) as the origin
+                                        val origin = allStops.minByOrNull { it.second.order }?.second
+                                            ?: allStops.first().second
 
-                    navController.popBackStack()
+                                        // Sort all stops by distance from the origin
+                                        val sorted = allStops.sortedBy { (_, s) ->
+                                            calculateDistance(
+                                                origin.latitude, origin.longitude,
+                                                s.latitude, s.longitude
+                                            )
+                                        }
+
+                                        // Re-save each stop with updated order
+                                        sorted.forEachIndexed { index, (key, s) ->
+                                            stopsRef.child(key).child("order").setValue(index)
+                                        }
+                                    }
+
+                                    Toast.makeText(context, "Stop Added & Route Sorted!", Toast.LENGTH_SHORT).show()
+                                    navController.popBackStack()
+                                }
+
+                                override fun onCancelled(error: DatabaseError) {
+                                    Toast.makeText(context, "Stop added but sort failed", Toast.LENGTH_SHORT).show()
+                                    navController.popBackStack()
+                                }
+                            })
+                        }
+                        .addOnFailureListener { e ->
+                            Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
 
                 } else {
                     Toast.makeText(context, "Select location & enter name", Toast.LENGTH_SHORT).show()

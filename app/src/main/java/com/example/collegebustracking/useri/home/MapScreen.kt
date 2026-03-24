@@ -154,6 +154,11 @@ fun MapScreen(navController: NavController, routeId: String) {
     var distanceToStop by remember { mutableStateOf(0.0) }
     var etaMinutes by remember { mutableStateOf(0) }
 
+    // ETA map: stopId -> formatted ETA time string (e.g. "08:15 AM")
+    var stopEtaMap by remember { mutableStateOf(mapOf<String, String>()) }
+    // Next stop ETA time formatted
+    var nextStopEtaTime by remember { mutableStateOf("") }
+
     // Road route segments between consecutive stops (cached)
     // routeSegments[i] = road route from stops[i] to stops[i+1]
     var routeSegments by remember { mutableStateOf(listOf<List<GeoPoint>>()) }
@@ -174,7 +179,7 @@ fun MapScreen(navController: NavController, routeId: String) {
                             list.add(stop.copy(id = child.key ?: ""))
                         }
                     }
-                    stops = list
+                    stops = list.sortedBy { it.order }
                 }
                 override fun onCancelled(error: DatabaseError) {}
             })
@@ -238,7 +243,7 @@ fun MapScreen(navController: NavController, routeId: String) {
                                 busLat = lat
                                 busLon = lon
 
-                                // Find nearest stop and its index
+                                // Find nearest upcoming stop
                                 var nearestIdx = -1
                                 var nearestDist = Double.MAX_VALUE
                                 stops.forEachIndexed { idx, s ->
@@ -262,6 +267,44 @@ fun MapScreen(navController: NavController, routeId: String) {
                                     val speedMs = 30.0 * 1000 / 3600
                                     etaMinutes = (dist / speedMs / 60).toInt()
                                 }
+
+                                // Compute ETA for ALL stops
+                                val etaMap = mutableMapOf<String, String>()
+                                val sdf12 = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                                val speedMsAll = 30.0 * 1000.0 / 3600.0  // 30 km/h
+
+                                // Distance from bus to nearest stop
+                                val distToFirst = if (nearestIdx >= 0) {
+                                    calculateDistance(lat, lon, stops[nearestIdx].latitude, stops[nearestIdx].longitude)
+                                } else 0.0
+
+                                // ETA for the nearest stop
+                                val firstEtaMin = (distToFirst / speedMsAll / 60.0).toInt()
+                                if (nearestIdx >= 0) {
+                                    val cal = Calendar.getInstance().apply { add(Calendar.MINUTE, firstEtaMin) }
+                                    val etaStr = sdf12.format(cal.time)
+                                    etaMap[stops[nearestIdx].id] = etaStr
+                                    nextStopEtaTime = etaStr
+                                }
+
+                                // For stops after the nearest: cumulative distance along route
+                                var cumulativeMinutes = firstEtaMin
+                                if (nearestIdx >= 0) {
+                                    for (i in nearestIdx until stops.size - 1) {
+                                        val fromStop = stops[i]
+                                        val toStop = stops[i + 1]
+                                        val segDist = calculateDistance(
+                                            fromStop.latitude, fromStop.longitude,
+                                            toStop.latitude, toStop.longitude
+                                        )
+                                        cumulativeMinutes += (segDist / speedMsAll / 60.0).toInt()
+                                        val cal = Calendar.getInstance().apply { add(Calendar.MINUTE, cumulativeMinutes) }
+                                        etaMap[toStop.id] = sdf12.format(cal.time)
+                                    }
+                                }
+
+                                // For stops before the nearest (already passed) — no ETA
+                                stopEtaMap = etaMap
                             } else {
                                 isTripActive = false
                                 busLat = null
@@ -324,11 +367,18 @@ fun MapScreen(navController: NavController, routeId: String) {
 
                 map.overlays.clear()
 
-                // Stop markers
+                // Stop markers with ETA info
                 stops.forEach { stop ->
                     val marker = Marker(map)
                     marker.position = GeoPoint(stop.latitude, stop.longitude)
-                    marker.title = stop.name
+                    val etaTime = stopEtaMap[stop.id]
+                    if (etaTime != null) {
+                        marker.title = "${stop.name} — ETA: $etaTime"
+                        marker.snippet = "Estimated arrival: $etaTime"
+                    } else {
+                        marker.title = stop.name
+                        marker.snippet = "Passed / No ETA"
+                    }
                     map.overlays.add(marker)
                 }
 
@@ -445,6 +495,16 @@ fun MapScreen(navController: NavController, routeId: String) {
                         Text(text = "\u23F1 ETA: ${if (etaMinutes < 1) "< 1 min" else "$etaMinutes min"}")
                     }
 
+                    // Estimated Arrival Time in 12-hour format
+                    if (nextStopEtaTime.isNotBlank()) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "\uD83D\uDD50 Estimated Arrival: $nextStopEtaTime",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = Color(0xFF6A5ACD)
+                        )
+                    }
+
                     // Expected Arrival Time + Delay Info
                     val expectedTime = nextStop!!.expectedArrivalTime
                     if (expectedTime.isNotBlank()) {
@@ -455,7 +515,7 @@ fun MapScreen(navController: NavController, routeId: String) {
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "\uD83D\uDD50 Expected: $expectedTime",
+                                text = "\uD83D\uDCCB Scheduled: $expectedTime",
                                 style = MaterialTheme.typography.bodyMedium
                             )
                             if (delayMin > 0) {
